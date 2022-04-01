@@ -70,7 +70,7 @@ class Sample:
     initGuesses = np.zeros(2).tolist()
     fitParameters = np.zeros(4).tolist()
     p = self.posts[row['Row']][row['Post']]
-    if numOfLineFits == 'Multi' or numOfLineFits == 'Both':
+    if config.numOfLineFits == 'Multi' or config.numOfLineFits == 'Both':
       fitParameters[0] = row['min_samples_split']
       fitParameters[1] = row['min_samples_leaf']
       fitParameters[2] = row['max_depth']
@@ -80,9 +80,10 @@ class Sample:
       p.fitParameters = fitParameters
       p.segment = segment
       p.curveClassification = curveClassification
-    elif numOfLineFits == 'One':
+    elif config.numOfLineFits == 'One':
       initGuesses[0] = row['Slope_Initial_Guess']
       initGuesses[1] = row['Intercept_Initial_Guess']
+      p.droppedPoints = row['Initial_Points_Dropped']
       p.initialGuesses = initGuesses
     p.inExcel = True
     
@@ -105,7 +106,7 @@ class Sample:
         for j in range(config.dim_columns):
           post = self.posts[i][j]
           if post != 0.0:
-            if readExcel:
+            if config.readExcel:
               if post.inExcel or self.firstInitialization:
                 self.testedPosts.append(post)
             else:
@@ -150,13 +151,13 @@ class Sample:
       self.infiltrationRecipe = self.sampleCharacteristics.get('infiltration_recipe').iloc[0]
       
   def loadTrackerData(self, filename = ''):
-    if trackerFiles == config.tracker_bad_posts:
+    if config.trackerFiles == config.tracker_bad_posts:
       problemPost = True
       directory = config.data_directory + "/" + config.tracker_directory + "/" + config.tracker_bad_posts
-    elif trackerFiles == config.tracker_good_posts:
+    elif config.trackerFiles == config.tracker_good_posts:
       problemPost = False
       directory = config.data_directory + "/" + config.tracker_directory + "/" + config.tracker_good_posts
-    elif trackerFiles == 'All posts':
+    elif config.trackerFiles == 'All posts':
       problemPost = False
       directory = config.data_directory + "/" + config.tracker_directory
     filenames = sorted(os.listdir(directory))
@@ -276,6 +277,7 @@ class Post:
     self.avgCNTDiameter = 0.0
     self.fitParameters = [0.1, 3, 2, 120]
     self.initialGuesses = [1, 2]
+    self.droppedPoints = 0
     self.segment = 0
     self.plots = {}
     self.wireData: DataFrame = DataFrame()
@@ -353,8 +355,8 @@ class Post:
     data = abs(self.refData["totalDistanceTraveled"] - self.wireData["totalDistanceTraveled"])
     data = data.dropna()
     self.tdPost = data
-    if truncatePostDeflection == True:
-      self.tdPost = self.tdPost[self.tdPost <= truncationValue]
+    if config.truncatePostDeflection == True:
+      self.tdPost = self.tdPost[self.tdPost <= config.truncationValue]
       self.tdWire = self.tdWire[self.tdWire.index.isin(self.tdPost.index)]
       self.tdPost.reset_index(drop=True, inplace=True)
       self.tdWire.reset_index(drop=True, inplace=True)
@@ -470,8 +472,8 @@ def makeDictValueStringsList(dictionary):
 
 def makeClassificationLists():
   curveSubsectionsList = {}
-  for subsection in curveSubsections:
-    lst = makeDictValueStringsList(curveSubsections[subsection])
+  for subsection in config.curveSubsections:
+    lst = makeDictValueStringsList(config.curveSubsections[subsection])
     curveSubsectionsList[subsection] = lst
   return curveSubsectionsList
 
@@ -499,7 +501,7 @@ def userAutoOrCheck(sample):
     return reply
 
 def userUpdateFitParameters(parameters):
-  if numOfLineFits == 'Multi' or numOfLineFits == 'Both':
+  if config.numOfLineFits == 'Multi' or config.numOfLineFits == 'Both':
     title = "Enter new Linear Tree parameters"
     msg = f"Previous parameters are: {parameters[0]}, {parameters[1]}, {parameters[2]}, and {parameters[3]}, respectively. Bounds are > 6, > 3, >1, and 10 < bins < 120, respectively."
     fieldNames = ["min_samples_split","min_samples_leaf","max_depth","max_bins"]
@@ -515,7 +517,7 @@ def userUpdateFitParameters(parameters):
         if fieldValues is None:
             break
     return list(map(int_or_float, fieldValues))
-  elif numOfLineFits == 'One':
+  elif config.numOfLineFits == 'One':
     title = "Enter new ODR initial guesses"
     msg = f"Previous gueses are: Slope: {parameters[0]} and Intercept: {parameters[1]}."
     fieldNames = ["Slope_initial_guess", "Intercept_initial_guess"]
@@ -572,7 +574,7 @@ def userAddClassification(subsection, choices):
   if newClassification == 'None':
     pass
   else:
-    curveSubsections[subsection][len(curveSubsections[subsection]) + 1] = newClassification
+    config.curveSubsections[subsection][len(config.curveSubsections[subsection]) + 1] = newClassification
   return makeClassificationLists()
 
 def userPickLinearSegment(slopes):
@@ -589,7 +591,7 @@ def userMarkAsProblemPost():
   return pp
 
 def userInterface(slopes, ltParameters, initialGuesses, problemPost, segment, post):
-  if numOfLineFits == 'Multi' or numOfLineFits == 'Both':
+  if config.numOfLineFits == 'Multi' or config.numOfLineFits == 'Both':
     if checkMode == True:  
       reply = userFitCheck()
       if reply == "Yes":
@@ -598,13 +600,14 @@ def userInterface(slopes, ltParameters, initialGuesses, problemPost, segment, po
         return True, segment, ltParameters, problemPost, 0
       elif reply == "No":
         droppedPoints = dropInitialPoints(post)
+        post.droppedPoints = droppedPoints
         ltParameters = userUpdateFitParameters(ltParameters)
         return False, segment, ltParameters, False, droppedPoints
       elif reply == "Stop program":
         sys.exit(0)
     elif checkMode == False:
         return True, segment, ltParameters, False, 0
-  elif numOfLineFits == 'One':
+  elif config.numOfLineFits == 'One':
     if checkMode == True:  
       reply = userFitCheck()
       # reply = 'Yes'
@@ -613,12 +616,14 @@ def userInterface(slopes, ltParameters, initialGuesses, problemPost, segment, po
         return True, segment, initialGuesses, problemPost, 0
       elif reply == "No":
         droppedPoints = dropInitialPoints(post)
+        post.droppedPoints = droppedPoints
         #initialGuesses = userUpdateFitParameters(initialGuesses)
         return False, segment, initialGuesses, False, droppedPoints
       elif reply == "Stop program":
         sys.exit(0)
     elif checkMode == False:
       return True, segment, initialGuesses, False, 0
+
 def userDropInitialPoints(post):
   title = "Drop initial points"
   msg = "Choose how many points to drop from the beggining. Only input integers or 'reset'."
@@ -630,7 +635,10 @@ def userDropInitialPoints(post):
     return int(points)
 
 def dropInitialPoints(post):
-  numPointsToDrop = userDropInitialPoints(post)
+  if config.readExcel and not checkMode:
+    numPointsToDrop = post.droppedPoints
+  else:
+    numPointsToDrop = userDropInitialPoints(post)
   post.refData = post.refData.truncate(before = numPointsToDrop)
   post.wireData = post.wireData.truncate(before = numPointsToDrop)
   post.refData.reset_index(drop=True, inplace=True)
@@ -646,10 +654,11 @@ def analyzePosts(sample):
   while not goodFit:
     for post in testedPosts:
       if post.td.size != 0:
+        post.droppedPoints = dropInitialPoints(post)
         x = post.td['tdPost'].to_numpy()
         y = post.td['tdWire'].to_numpy()   
         findGoodFit(x, y, post)
-    if testMode:
+    if config.testMode:
       goodFit = True
     else: 
       goodFit = userAutoOrCheck(sample)
@@ -711,7 +720,7 @@ def fitPlotCalcAndSave(x, y, post):
   initialGuesses = post.initialGuesses
   fig = plt.figure(figsize=(10,6))
   plt.scatter(x, y, s=10, c='black')
-  if numOfLineFits == 'One':  
+  if config.numOfLineFits == 'One':  
     slopes, stdErrors, endXs = oneLineODRfit(x, y, post)
     plt.legend(slopes)
     plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
@@ -719,7 +728,7 @@ def fitPlotCalcAndSave(x, y, post):
     plt.show()
     goodFit, segment, initialGuesses, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
     endXs[segment] = endXs[segment]-droppedPoints
-  elif numOfLineFits == 'Multi':
+  elif config.numOfLineFits == 'Multi':
     slopes, stdErrors, endXs = multiLineLTfit(x, y, post, ltParameters)
     plt.legend(slopes)
     plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
@@ -727,7 +736,7 @@ def fitPlotCalcAndSave(x, y, post):
     plt.show()
     goodFit, segment, ltParameters, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
     endXs[segment] = endXs[segment]-droppedPoints
-  elif numOfLineFits == 'Both':
+  elif config.numOfLineFits == 'Both':
     slopesODR, stdErrorsODR, endXsODR = oneLineODRfit(x, y, post)
     slopesLT, stdErrorsLT, endXsLT = multiLineLTfit(x, y, post, ltParameters)
     plt.legend(slopes)
@@ -750,8 +759,8 @@ def fitPlotCalcAndSave(x, y, post):
   x = post.td['tdPost'].to_numpy()
   y = post.td['tdWire'].to_numpy() 
   if goodFit:
-    if saveEachPostPlot:
-      pdf.savefig(fig)
+    if config.saveEachPostPlot:
+      config.pdf.savefig(fig)
     post.fitParameters = ltParameters
     post.segment = segment
     post.initialGuesses = initialGuesses
@@ -795,7 +804,7 @@ def loopThroughLeaves(lt, x, y, post):
     plt.plot(x[startX:endX], lt.predict(x[startX:endX]))
     stdError = calcStandardErrorOfSlope(x[startX:endX], y[startX:endX], model)
     stdErrors.append(stdError)
-    # if not numOfLineFits:
+    # if not config.numOfLineFits:
     #   break
   return slopes, stdErrors, endXs
 
@@ -873,13 +882,13 @@ def saveSampleLevelGraphs(posts):
 
 def grabSamples(excelFileName = '', sampleNames=[]):
   directory = config.data_directory + "/" + config.output_directory
-  filename = trackerFiles + ".xlsx"
+  filename = config.trackerFiles + ".xlsx"
   if excelFileName != '':
     filename = excelFileName + ".xlsx"
   samples = []
   sampleNamesString = ""
   
-  if readExcel:    
+  if config.readExcel:    
     readData = pd.read_excel(directory + "/" + filename, header=0, index_col=0)
     readData = readData.sort_index()  
     for r in readData.itertuples():
