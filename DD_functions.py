@@ -16,7 +16,6 @@ import seaborn as sns
 import pprint
 import sys
 from easygui import *
-import pydot
 from sklearn.linear_model import *
 from sklearn.linear_model import LinearRegression
 from lineartree import LinearTreeRegressor
