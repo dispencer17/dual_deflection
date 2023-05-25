@@ -8,19 +8,24 @@ from pandas.core.frame import DataFrame
 from converters import UnitConverters
 import config
 import matplotlib.pyplot as plt
+from matplotlib import ticker as mticker
+from matplotlib.ticker import NullFormatter, FixedLocator
 import matplotlib
 import seaborn as sns
+from matplotlib import cm
+from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 # import pwlf
 # from GPyOpt.methods import BayesianOptimization
 
 import pprint
 import sys
 from easygui import *
-from sklearn.linear_model import *
-from sklearn.linear_model import LinearRegression
-from lineartree import LinearTreeRegressor
-from sklearn.datasets import make_regression
+# from sklearn.linear_model import *
+# from sklearn.linear_model import LinearRegression
+# from lineartree import LinearTreeRegressor
+# from sklearn.datasets import make_regression
 from statistics import mean
+from statistics import stdev
 import statsmodels.api as sm
 import matplotlib.backends.backend_pdf as mpdf
 
@@ -34,8 +39,14 @@ class Sample:
     self.testedPosts = []
     self.plots = {}
     self.avgModulus = 0.0
+    self.stdModulus = 0.0
+    self.cvModulus = 0.0
     self.failureMode = ''
     self.avgCNTDiameter = 0.0
+    self.stdCNTDiameter = 0.0
+    self.cvCNTDiameter = 0.0
+    self.growthTime = 0.0
+    self.infiltrationTime = 0.0
     self.infiltrationRecipe = ''
     self.inSEMdata = False
     self.inTrackerData = False
@@ -46,10 +57,10 @@ class Sample:
     self.loadTrackerData()
     self.loadMetadata()
     self.setTestedPosts()
-    self.setAvgMod()
+    self.setAvgModAndStats()
     self.setFailureMode()
-    self.setAvgCNTDiam()
-    self.setInfilRecipe()
+    self.setAvgCNTDiamAndStats()
+    self.setInfilData()
     self.firstInitialization = False
   
   def loadMetadata(self):
@@ -111,7 +122,7 @@ class Sample:
             else:
               self.testedPosts.append(post)
               
-  def setAvgMod(self):
+  def setAvgModAndStats(self):
     moduli = []
     if self.inTrackerData:
       for p in self.testedPosts:
@@ -119,8 +130,12 @@ class Sample:
       moduli = [i for i in moduli if i != 0]
       if len(moduli) == 0:
         self.avgModulus = 0.0
+        self.stdModulus = 0.0
+        self.cvModulus = 0.0
       else:  
         self.avgModulus = mean(moduli)
+        self.stdModulus = stdev(moduli)
+        self.cvModulus = self.stdModulus/self.avgModulus
         
 
   def setFailureMode(self):
@@ -132,7 +147,7 @@ class Sample:
             modes.append(fmode)
       self.failureMode = modes[0]
     
-  def setAvgCNTDiam(self):
+  def setAvgCNTDiamAndStats(self):
     diams = []
     if self.inSEMdata:
       for p in self.testedPosts:
@@ -140,14 +155,23 @@ class Sample:
         if isinstance(diam, float) and not np.isnan(diam) and diam != 0:
           diams.append(diam)
       if len(diams) == 0:
-        self.avgCNTDiameter = 0
-      else:
+        self.avgCNTDiameter = 0.0
+        self.stdCNTDiameter = 0.0
+        self.cvCNTDiameter = 0.0
+      else:  
         self.avgCNTDiameter = mean(diams)
+        self.stdCNTDiameter = stdev(diams)
+        self.cvCNTDiameter = self.stdCNTDiameter/self.avgCNTDiameter
     
       
-  def setInfilRecipe(self):
+  def setInfilData(self):
     if self.inSampleData:
       self.infiltrationRecipe = self.sampleCharacteristics.get('infiltration_recipe').iloc[0]
+      self.infiltrationTime = self.sampleCharacteristics.get('infiltration_time').iloc[0]
+  
+  def setGrowthTime(self):
+    if self.inSampleData:
+      self.growthTime = self.sampleCharacteristics.get('growth_time').iloc[0]
       
   def loadTrackerData(self, filename = ''):
     if config.trackerFiles == config.tracker_bad_posts:
@@ -266,7 +290,9 @@ class Post:
     self.post = 0
     self.goodSlope = 0.0
     self.slopeError = 0.0
+    self.length = 0.0
     self.effectiveLength = 0.0
+    self.wEffLength = 0.0
     self.modulus = 0.0
     self.averageMod = 0.0
     self.modUncertainty = 0.0
@@ -284,6 +310,7 @@ class Post:
     self.ddTestConditions = {}
     self.semData = {}
     self.td: DataFrame = DataFrame()
+    self.tdNoOffset: DataFrame = DataFrame()
     self.tdWire: DataFrame = DataFrame()
     self.tdPost: DataFrame = DataFrame()
     self.force: DataFrame = DataFrame()
@@ -314,18 +341,30 @@ class Post:
 
   def setDdTestConditions(self, data):
     self.ddTestConditions = data
+    self.setLength()
     self.setEffectiveLength()
+    self.setWireEffectiveLength()
+  
+  def setLength(self):
+    pLength = self.ddTestConditions.get('slope_corrected_p_height')
+    if isinstance(pLength, float):
+      self.length = pLength
   
   def setEffectiveLength(self):
     eLength = self.ddTestConditions.get("p_effective_length")
     if isinstance(eLength, float):
       self.effectiveLength = eLength
+      
+  def setWireEffectiveLength(self):
+    wELength = self.ddTestConditions.get("w_effective_length")
+    if isinstance(wELength, float):
+      self.wEffLength = wELength
     
   def setSemData(self, data):
     self.semData = data
     self.setFailureMode()
-    self.setAvgCNTDiam()
-
+    self.setAvgCNTDiamAndStats()
+    
   def setModulus(self, modulus):
     self.modulus = modulus
       
@@ -334,7 +373,7 @@ class Post:
     if isinstance(mode, str):
       self.failureMode = mode
   
-  def setAvgCNTDiam(self):
+  def setAvgCNTDiamAndStats(self):
     diam = self.semData.get('Average')
     if isinstance(diam, float):
       self.avgCNTDiameter = diam
@@ -360,6 +399,7 @@ class Post:
       self.tdPost.reset_index(drop=True, inplace=True)
       self.tdWire.reset_index(drop=True, inplace=True)
     self.td = DataFrame().assign(tdPost=self.tdPost, tdWire=self.tdWire)
+    self.tdNoOffset = DataFrame().assign(tdPost=self.tdPost, tdWire=self.tdWire)
     self.zeroOffset()
   
   def calculations(self):
@@ -696,56 +736,50 @@ def oneLineODRfit(x, y, post):
   # myoutput.pprint()
   xx = np.array([x[0], x[-1]])
   yy = f(myoutput.beta, xx)
-  plt.plot(xx, yy)
+  # if config.plotMode:
+  #   plt.plot(xx, yy)
   slope = [myoutput.beta[0]]
   stdError = [myoutput.sd_beta[0]]
   endx = [len(x)-1]
-  return slope, stdError, endx
+  return xx, yy, slope, stdError, endx
 
-def multiLineLTfit(x, y, post, ltParameters):
-  x = x.reshape(-1,1)
-  lt = LinearTreeRegressor(
-       base_estimator = LinearRegression(),
-       min_samples_split= ltParameters[0],
-       min_samples_leaf = ltParameters[1],
-       max_depth = ltParameters[2],
-       max_bins = ltParameters[3]
-   ).fit(x, y)
-  slopes, stdErrors, endXs = loopThroughLeaves(lt, x, y, post)
-  return slopes, stdErrors, endXs
+# def multiLineLTfit(x, y, post, ltParameters):
+#   x = x.reshape(-1,1)
+#   lt = LinearTreeRegressor(
+#        base_estimator = LinearRegression(),
+#        min_samples_split= ltParameters[0],
+#        min_samples_leaf = ltParameters[1],
+#        max_depth = ltParameters[2],
+#        max_bins = ltParameters[3]
+#    ).fit(x, y)
+#   slopes, stdErrors, endXs = loopThroughLeaves(lt, x, y, post)
+#   return slopes, stdErrors, endXs
   
 def fitPlotCalcAndSave(x, y, post):
   ltParameters = post.fitParameters
   initialGuesses = post.initialGuesses
-  fig = plt.figure(figsize=(10,6))
-  plt.scatter(x, y, s=10, c='black')
   if config.numOfLineFits == 'One':  
-    slopes, stdErrors, endXs = oneLineODRfit(x, y, post)
-    plt.legend(slopes)
-    plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
-    plt.title(post.getAddressString(), fontsize=16)
-    plt.show()
+    xx, yy, slopes, stdErrors, endXs = oneLineODRfit(x, y, post)
     goodFit, segment, initialGuesses, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
     endXs[segment] = endXs[segment]-droppedPoints
   elif config.numOfLineFits == 'Multi':
     slopes, stdErrors, endXs = multiLineLTfit(x, y, post, ltParameters)
-    plt.legend(slopes)
-    plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
-    plt.title(post.getAddressString(), fontsize=16)
-    plt.show()
     goodFit, segment, ltParameters, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
     endXs[segment] = endXs[segment]-droppedPoints
   elif config.numOfLineFits == 'Both':
-    slopesODR, stdErrorsODR, endXsODR = oneLineODRfit(x, y, post)
+    xx, yy, slopesODR, stdErrorsODR, endXsODR = oneLineODRfit(x, y, post)
     slopesLT, stdErrorsLT, endXsLT = multiLineLTfit(x, y, post, ltParameters)
-    plt.legend(slopes)
-    plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
-    plt.title(post.getAddressString(), fontsize=16)
-    plt.show()
     goodFit, segment, ltParameters, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
     slopes = [*slopesODR, *slopesLT]
     endXs[segment] = endXsLT[segment]-droppedPoints
     stdErrors = stdErrorsLT
+  if config.plotMode:
+    fig = plotDeflectionGraph(x, y, xx, yy, post)
+    if(post.sample.name == '202-I' and post.post == 22 and post.row == 4):
+      print(post.sample.name)
+      directory = config.data_directory + "/" + config.output_directory
+      fig.savefig(directory + '/202-I_r4_p22.svg', bbox_inches='tight')
+    post.savePlot('Deflection plot with fits', fig)
   
   goodSlope = slopes[segment]
   stdError = stdErrors[segment]
@@ -754,11 +788,10 @@ def fitPlotCalcAndSave(x, y, post):
   post.problemPost = problemPost
   post.calculations()
   post.ultStrength = post.force.to_numpy()[endXs[segment]][0]
-  post.savePlot('Deflection plot with fits', fig)
   x = post.td['tdPost'].to_numpy()
   y = post.td['tdWire'].to_numpy() 
   if goodFit:
-    if config.saveEachPostPlot:
+    if config.saveEachPostPlot and config.plotMode:
       config.pdf.savefig(fig)
     post.fitParameters = ltParameters
     post.segment = segment
@@ -800,7 +833,8 @@ def loopThroughLeaves(lt, x, y, post):
     startX = endX
     endX += m.get('samples')
     endXs.append(endX)
-    plt.plot(x[startX:endX], lt.predict(x[startX:endX]))
+    if config.plotMode:
+      plt.plot(x[startX:endX], lt.predict(x[startX:endX]))
     stdError = calcStandardErrorOfSlope(x[startX:endX], y[startX:endX], model)
     stdErrors.append(stdError)
     # if not config.numOfLineFits:
@@ -811,26 +845,33 @@ def savePostLevelGraphs(post):
   x = post.tdPost.values.reshape(-1,1)
   y = post.tdWire.values
   # deflectionGraph(x, y, post)
-  forceDeflectionGraph(post)
+  plotForceDeflectionGraph(post)
 
-def forceDeflectionGraph(post):
+def plotForceDeflectionGraph(post):
   f = post.force.values
   d = post.tdPost.values.reshape(-1,1)
   
   fig = plt.figure(figsize=(10,6))
   plt.scatter(d, f, s=10, c='black')
-  plt.xlabel('Post deflection'); plt.ylabel('Force')   
+  plt.xlabel('Post deflection', fontsize=config.axisFontSize); plt.ylabel('Force', fontdict=config.axisFontSize)   
   plt.title(post.getAddressString())
   post.savePlot('Force Deflection plot', fig)
     
-def deflectionGraph(x, y, post):
-  fig = plt.figure(figsize=(10,6))
-  plt.scatter(x, y, s=10, c='black')
-  plt.xlabel('Post deflection'); plt.ylabel('Wire deflection')   
-  plt.title(post.getAddressString())
+def plotDeflectionGraph(x, y, xx, yy, post, plotFit=True, legend=False, slopes=[]):
+  fig, ax = plt.subplots(figsize=(10,6))
+  plt.scatter(x, y, s=100, c='black', alpha=(0.65))
+  plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize); #plt.ylabel('Wire deflection ' + u'(\u03bcm)', fontsize=config.axisFontSize)   
+  # plt.title(post.getAddressString(), fontsize=config.titleFontSize)
+  # plt.tight_layout()
+  if plotFit:
+    plt.plot(xx, yy, linewidth=3, alpha=0.85)
+  if legend:
+    plt.legend(slopes)
   post.savePlot('Deflection plot', fig)
+  return fig
     
 def collectPostInfo(posts):
+  slopes, moduli, wcHeights, failureModes, rpAddresses = collectPostInfo(posts)
   slopes = []
   moduli = []
   wcHeights = []
@@ -846,9 +887,85 @@ def collectPostInfo(posts):
       savePostLevelGraphs(p)
   return slopes, moduli, wcHeights, failureModes, rpAddresses
 
-def saveSampleLevelGraphs(posts):
-  slopes, moduli, wcHeights, failureModes, rpAddresses = collectPostInfo(posts)
+def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=None, errorBars=False, snsPlotType='scatterplot', titlesize=16,
+                   hue=None, style=None, markerSize=200, tickFontSize=16, legend=False, 
+                   truncateLegend=False, colorViolinEdge=False, savefig=True, ylog=False, 
+                   boxOrien = 'v', boxOrder=None, hueOrder=None, titleBool=False,
+                   markerPalette='tab10', violinEdgePalette='tab10', violinFillPallete='Pastel2'):
+  fig, ax = plt.subplots(figsize=(10,6))
+  if ylog:
+    ax.set_yscale('log')
+  if snsPlotType == 'scatterplot':
+    sns.scatterplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette, style=style, s=markerSize)
+    if errorBars:
+      cmap = cm.get_cmap(markerPalette)
+      df = df.sort_values(by=[xAxis])
+      cols = [cmap(0.05), cmap(0.15), cmap(0.25)]
+      ax.errorbar(df[xAxis], df[yAxis], xerr=df[xErr], yerr=df[yErr], fmt='', zorder=-1, ls='none',  ecolor=cols)
+      # plt.errorbar(df[xAxis], df[yAxis], xerr=df[xErr], yerr=df[yErr], lolims=True, fmt='', zorder=-1, ls='none')
+  elif snsPlotType == 'pointplot':
+    sns.pointplot(x=xAxis, y=yAxis, data=df, hue=hue, join=False, ci='sd')
+  elif  snsPlotType == 'catplot':
+    sns.catplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette)
+    plt.xticks(rotation=60)
+  elif snsPlotType == 'boxplot':
+    sns.boxplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette, 
+                orient=boxOrien, order=boxOrder)
+  elif snsPlotType == 'swarmplot':
+    sns.swarmplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette)
+    #plt.xticks(rotation=60)
+  elif snsPlotType == 'violin_swarm':
+    if ylog:
+      dflog = df.copy()
+      dflog[yAxis] = np.log10(dflog[yAxis])
+    if violinFillPallete == 'white':
+      sns.violinplot(x=xAxis, y=yAxis, data=dflog, inner='quartile', color='white')
+    else:
+      sns.violinplot(x=xAxis, y=yAxis, data=dflog, inner='quartile', palette=violinFillPallete)
+    if colorViolinEdge:
+      for i in range(len(ax.collections)):
+        ax.collections[i].set_edgecolor(sns.color_palette(violinEdgePalette)[i])
+    sns.swarmplot(x=xAxis, y=yAxis, data=dflog, hue=hue, palette=markerPalette)
+    plt.legend([],[], frameon=False)
+    if ylog:
+      ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("$10^{{{x:.0f}}}$"))
+      ax.yaxis.set_minor_formatter(NullFormatter())
+      ymin, ymax = ax.get_ylim()
+      tick_range = np.arange(np.floor(ymin), ymax)
+      ax.yaxis.set_ticks(tick_range)
+      ax.yaxis.set_ticks([np.log10(x) for p in tick_range for x in np.linspace(10 ** p, 10 ** (p + 1), 10)], minor=True)
+  elif snsPlotType == 'box_swarm':
+    sns.boxplot(x=xAxis, y=yAxis, data=df, palette=markerPalette, orient=boxOrien, order=boxOrder)
+    sns.swarmplot(x=xAxis, y=yAxis, data=df, color=".25")
+    
+  if legend:
+    # plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
+    plt.legend()
+    if truncateLegend:
+      handles, labels = ax.get_legend_handles_labels()
+      index_infiltration_title = labels.index('Infiltration_Time')
+      index_sample_title = labels.index('Sample')
+      ax.legend(handles[index_infiltration_title+1:index_sample_title], labels[index_infiltration_title+1:index_sample_title], title='Infiltration Times (s)', 
+              bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
+      ax.legend(handles[index_infiltration_title+1:index_sample_title], labels[index_infiltration_title+1:index_sample_title], title='Infiltration Times (s)',
+                fontsize=16, title_fontsize=16)
+      # ax.legend(handles[index_infiltration_title+1:index_sample_title], labels[index_infiltration_title+1:index_sample_title], title='Infiltration Times (s)', 
+              # bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
+  plt.xlabel(xlabel, fontsize=config.titleFontSize)
+  plt.ylabel(ylabel, fontsize=config.titleFontSize)
+  plt.rc('xtick', labelsize=config.titleFontSize) 
+  plt.rc('ytick', labelsize=tickFontSize) 
+  plt.tight_layout()
+  if titleBool:
+    plt.title(title, fontsize=config.titleFontSize)
+  plt.show()
+  if savefig:
+    config.pdf.savefig(fig, bbox_inches='tight')
+    directory = config.data_directory + "/" + config.output_directory
+    fig.savefig(directory + f'/{title} at {config.truncationValue}.svg', bbox_inches='tight')
+  return fig
   
+def saveSampleLevelGraphs(posts):
   slopesVsPosts = plt.figure(figsize=(10,6))
   plt.scatter(rpAddresses, slopes, s=20, c='black')
   plt.title(posts[0].sample.name)

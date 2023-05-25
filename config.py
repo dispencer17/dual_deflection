@@ -7,6 +7,7 @@ tracker_good_posts = "Good posts"
 metadata_directory = "Metadata"
 media_directory = "Videos and images"
 output_directory = "Program output"
+fea_data_file = "FEA Results"
 # metadata_filenames = [ "Carbon_recipes.xlsx", "Posts_characteristics.xlsx", "Posts_SEM_data.xlsx", "Samples.xls" ]
 
 SampleCharacteristicFiles = [ "Samples.xlsx" ]
@@ -15,6 +16,7 @@ DdTestConditionFiles = [ "DD_test_conditions.xlsx" ]
 SemDataFiles = [ "Posts_SEM_data.xlsx" ]
 
 global testMode
+global plotMode
 global readExcel
 global excelName
 global trackerFiles
@@ -25,18 +27,22 @@ global curveSubsections
 global truncatePostDeflection
 global truncationValue
 global numOfLineFits
+global axisFontSize
+global titleFontSize
 
 #Test mode will run the entire program with no input from user.
 testMode = True
+#Plot mode will plot the fitted deflection curves of each post
+plotMode = False
 #Do you want to read in previously processed posts from an excel file?
 readExcel = True
-excelName = 'Final output at 10 microns'
+excelName = 'Final output at 10 microns with outliers'
 #Declare which tracker files use want to use, i.e. Bad posts, Good posts, or All posts
 #This will change which directory the tracker files are pulled from. 
 trackerFiles = "All posts"
 # Delare sample name or names you want to do in this run. If you are reading in an excel file, sampleNames is not used. 
 # ['188-I', '190-I', '194-U', '195-I', '198-U', '199-I', '200-U', '201-I', '202-I', '203-I']
-sampleNames = ['188-I', '190-I', '194-U', '195-I', '198-U', '199-I', '200-U', '201-I', '202-I', '203-I']
+sampleNames = ['188-I', '194-U', '195-I', '198-U', '199-I', '200-U', '201-I', '202-I', '203-I']
 #If true, the deflection curve and linear fits of each post will be saved to the pdf
 saveEachPostPlot = True
 #Do you want a 'Multi', 'One', or 'Both'? Both is just for graph comparison. Most calculations won't work.
@@ -58,3 +64,7 @@ curveSubsections = {'Initial_deflection': initialDeflections, 'Failure': failure
 #Do you want to truncate the post deflection curves at some value of microns?
 truncatePostDeflection = True
 truncationValue = 10
+axisFontSize = 16
+titleFontSize = 20
+#Sample level excel output filename
+sampleExcelFileName = 'Sample Averages.xlsx'
