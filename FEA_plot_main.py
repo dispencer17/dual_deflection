@@ -33,6 +33,7 @@ def main():
   xlabel2 = 'Distance along Probe ' + u'(\u03bcm)'
   ylabel = 'X Direction Strain'
   legends = ['Si 165 GPa', 'CNT 1.7 GPa', 'CNT 0.072 GPa', 'CNT 0.0039 GPa']
+  filename = 'APL_strain_table_data.xlsx'
   
   
   feaData, directory = grabData(config.fea_data_file)
@@ -47,11 +48,9 @@ def main():
                            points_to_drop=0, points_to_truncate=0, xlabel=xlabel2, ylabel=ylabel, legends=legends)
   # pos_slope = np.greater_equal(DyDx2, 0)
   # ful_point = np.greater_equal(Y2, 0)
-  max_percent_after_fp = []
-  max_strain_after_fp = []
-  max_after_fp_dis = []
-  max_strain = []
-  fp_distance = []
+
+  strainTableData = {'strain_max': [], 'percent_max_after_fp': [], 'dis_fp': [],
+                      'strain_max_after_fp': [], 'dis_max_after_fp': []}  
   # # plt.figure()
   k = 0
   # dy2_diff = np.abs(np.array(DyDx2)-k)
@@ -68,16 +67,18 @@ def main():
     max_point = np.max(np.abs(Y2[i]))
     
     max_point_index = np.argmax(np.abs(Y2[i]))
-    max_percent_after_fp.append(max_point_after_fp/max_point)
-    max_strain_after_fp.append(max_point_after_fp)
-    max_strain.append(max_point)
-    max_after_fp_dis.append(X2[i][max_point_index_fp])
-    fp_distance.append(X2[i][fp_index[0][0]])
+    strainTableData['percent_max_after_fp'].append(max_point_after_fp/max_point)
+    strainTableData['strain_max_after_fp'].append(max_point_after_fp)
+    strainTableData['strain_max'].append(max_point)
+    strainTableData['dis_max_after_fp'].append(X2[i][max_point_index_fp])
+    strainTableData['dis_fp'].append(X2[i][fp_index[0][0]])
     # if np.size(pos_slope_index) > 0: 
       # plt.plot(X2[i][pos_slope_index[0][0]], Y2[i][pos_slope_index[0][0]], 'ko')
     # plt.plot(X2[i][fp_index[0][0]], Y2[i][fp_index[0][0]], 'mo')
     plt.plot(X2[i][max_point_index_fp], Y2[i][max_point_index_fp], 'ko')
     # plt.plot(X2[i][index], Y2[i][index], 'm*')
-  plt.show()
+  dfs = pd.DataFrame(data=strainTableData, index=legends)
+  dfs.to_excel(directory + "/" + filename)
+  # plt.show()
   print('stop')
 main()
