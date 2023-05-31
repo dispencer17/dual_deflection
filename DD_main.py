@@ -246,10 +246,10 @@ def main():
   # print('Significance levels:', res.significance_level)
   
   kwRes = stats.kruskal(moduliByInfTime[0][0], moduliByInfTime[15][0], moduliByInfTime[30][0])
-  # print('kw res for Moduni: ', kwRes)
+  print('kw res for Moduni: ', kwRes)
   
   kwRes = stats.kruskal(cntDiamsByInfTime[0][0], cntDiamsByInfTime[15][0], cntDiamsByInfTime[30][0])
-  # print('kw res for CNT Diams: ', kwRes)
+  print('kw res for CNT Diams: ', kwRes)
   
   
   

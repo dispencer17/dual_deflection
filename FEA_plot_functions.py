@@ -8,6 +8,7 @@ Created on Wed Oct 12 17:20:58 2022
 
 from scipy import optimize
 from scipy import odr
+from scipy.signal import savgol_filter
 import numpy as np
 import pandas as pd
 import re
@@ -29,7 +30,9 @@ def grabData(excelFileName = ''):
     filename = excelFileName + ".xlsx"
 
   feaData = pd.read_excel(directory + "/" + filename, header=0)
-  feaData = feaData.sort_index()  
+  feaData = feaData.sort_index()
+  # feaData.drop_duplicates(subset = ['APL_dis_R'], inplace=True)
+  
    
   return feaData, directory
 
@@ -42,8 +45,8 @@ def getXY(data, MSite, modulus, side):
   y = data[y_address]
   return x,y
 
-def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', modulus='All', legend_loc = 'upper left', 
-            points_to_drop = 0, points_to_truncate=0, xlabel = '', ylabel = '', legends = []):
+def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', offset = 0, modulus='All', legend_loc = 'upper left', 
+            points_to_drop = 0, points_to_truncate=0, xlabel = '', ylabel = '', legends = [], markerPalette = 'tab10'):
   """
   Plots all of the FEA data included in the spreadsheet. See config.py for directory and file name. 
   Parameters allow selective plotting. 
@@ -115,7 +118,10 @@ def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', modul
   keys = keys[correct_keys]
   dis_keys = keys.str.contains('dis')
   dis_keys_index = np.where(dis_keys)[0]
-  n = dis_keys_index[1]-dis_keys_index[0]
+  if len(dis_keys_index) > 1:
+    n = dis_keys_index[1]-dis_keys_index[0]
+  else:
+    n = int(keys.size)
   if oneSide == '_L' or oneSide == '_R':
     correct_keys = keys.str.endswith(oneSide)
     keys = keys[correct_keys]
@@ -129,6 +135,14 @@ def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', modul
   #   fig, ax = plt.figure()
 
   r = int(keys.size)
+  plt.rc('xtick', labelsize=config.axisFontSize) 
+  plt.rc('ytick', labelsize=config.axisFontSize)
+  fig, ax = plt.subplots(figsize=(10,6))
+  # if mLoc[0] == 'APL':
+  #   next(ax._get_lines.prop_cycler)
+  #   legends.pop(0)
+  plt.axhline(y=0, color='k')
+  offsetAdded = False
   for i in range(0, r, n):
     x_address = keys[i]
     for j in ns:
@@ -136,8 +150,15 @@ def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', modul
         continue
       y_address = keys[i+j]
       y_addresses.append(y_address)
-      x = data[x_address]
-      y = data[y_address]
+      if offset != 0 and not offsetAdded:
+        data[x_address] = data[x_address]+offset
+        offsetAdded = True
+      x = data[x_address].dropna()
+      y = data[y_address].dropna()
+      if x.size > y.size:
+        x = x.truncate(after = y.size - 1)
+      elif y.size > x.size:
+        y = y.truncate(after = x.size - 1)
       if points_to_drop != 0:
         x = x.drop(x.index[0:points_to_drop])
         y = y.drop(y.index[0:points_to_drop])
@@ -145,31 +166,37 @@ def plotAll(data, oneGraph=False, oneSide='_L', legend=False,  mLoc='All', modul
         x = x.drop(x.index[-points_to_truncate:])
         y = y.drop(y.index[-points_to_truncate:])
       if not oneGraph:
-        plt.figure(figsize=(10,6))
+        # fig, ax = plt.subplots(figsize=(10,6))
         plt.title(y_address)
       if oneGraph and q == 1:
-        plt.figure(figsize=(10,6))
+        # fig, ax = plt.subplots(figsize=(10,6))
         q = -1
       if y_address.__contains__('Si'):
         plt.plot(x, y, '--', label=legends[j-1])
+        w = int(np.floor(y.size/4))
+        # yhat = savgol_filter(y, w, 4) # window size 51, polynomial order 3
+        # plt.plot(x, yhat, 'k-', label=legends[j-1])
       else:
         plt.plot(x, y, label=legends[j-1])
+        # yhat = savgol_filter(y, 51, 3) # window size 51, polynomial order 3
+        # plt.plot(x, yhat, 'k-', label=legends[j-1])
       if mLoc[0] == 'APL':
-        plt.xlim(0,1000)
+        plt.xlim(0, 1091)
+      else: 
+        plt.xlim(0, 635)
       X.append(x.reset_index(drop = True))
       Y.append(y.reset_index(drop = True)) 
       DyDx.append(np.diff(y)/np.diff(x))
       # plt.plot(x[:-1], DyDx[-1], label='slope')
   if xlabel != '':
-    plt.xlabel(xlabel, fontsize=config.axisFontSize)
+    plt.xlabel(xlabel, fontsize=config.titleFontSize)
   if ylabel != '':
-    plt.ylabel(ylabel, fontsize=config.axisFontSize)
-  plt.rc('xtick', labelsize=config.axisFontSize) 
-  plt.rc('ytick', labelsize=config.axisFontSize) 
+    plt.ylabel(ylabel, fontsize=config.titleFontSize)
+  
   if legend:
     plt.legend(legends)
     plt.legend(fontsize=12)
     # plt.legend(bbox_to_anchor=(1.01, 1), loc=legend_loc, borderaxespad=0)
   plt.tight_layout()
-  return X, Y, DyDx
+  return X, Y, DyDx, fig
     

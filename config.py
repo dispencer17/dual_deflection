@@ -7,7 +7,9 @@ tracker_good_posts = "Good posts"
 metadata_directory = "Metadata"
 media_directory = "Videos and images"
 output_directory = "Program output"
-fea_data_file = "FEA Results"
+fea_data_file = "FEA Results_20230513"
+#Sample level excel output filename
+sampleExcelFileName = 'Sample Averages.xlsx'
 # metadata_filenames = [ "Carbon_recipes.xlsx", "Posts_characteristics.xlsx", "Posts_SEM_data.xlsx", "Samples.xls" ]
 
 SampleCharacteristicFiles = [ "Samples.xlsx" ]
@@ -64,7 +66,5 @@ curveSubsections = {'Initial_deflection': initialDeflections, 'Failure': failure
 #Do you want to truncate the post deflection curves at some value of microns?
 truncatePostDeflection = True
 truncationValue = 10
-axisFontSize = 16
+axisFontSize = 18
 titleFontSize = 20
-#Sample level excel output filename
-sampleExcelFileName = 'Sample Averages.xlsx'
