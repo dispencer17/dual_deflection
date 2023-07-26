@@ -1,5 +1,6 @@
 from scipy import optimize
 from scipy import odr
+import scipy.stats as stats
 import numpy as np
 import pandas as pd
 import re
@@ -41,10 +42,13 @@ class Sample:
     self.avgModulus = 0.0
     self.stdModulus = 0.0
     self.cvModulus = 0.0
+    self.semModulus = 0.0
     self.failureMode = ''
+    self.quantCNTDiameter = 0
     self.avgCNTDiameter = 0.0
     self.stdCNTDiameter = 0.0
     self.cvCNTDiameter = 0.0
+    self.semCNTDiameter = 0.0
     self.growthTime = 0.0
     self.infiltrationTime = 0.0
     self.infiltrationRecipe = ''
@@ -52,6 +56,7 @@ class Sample:
     self.inTrackerData = False
     self.inSampleData = False
     self.firstInitialization = True
+    self.checkMode = False
     
     # read and load tracker data for posts
     self.loadTrackerData()
@@ -80,6 +85,8 @@ class Sample:
     initGuesses = np.zeros(2).tolist()
     fitParameters = np.zeros(4).tolist()
     p = self.posts[row['Row']][row['Post']]
+    # if self.name == '198-U' and p.row == 4:
+    #   print("!!!")
     if config.numOfLineFits == 'Multi' or config.numOfLineFits == 'Both':
       fitParameters[0] = row['min_samples_split']
       fitParameters[1] = row['min_samples_leaf']
@@ -120,7 +127,7 @@ class Sample:
               if post.inExcel or self.firstInitialization:
                 self.testedPosts.append(post)
             else:
-              self.testedPosts.append(post)
+              self.testedPosts.append(post) 
               
   def setAvgModAndStats(self):
     moduli = []
@@ -132,10 +139,12 @@ class Sample:
         self.avgModulus = 0.0
         self.stdModulus = 0.0
         self.cvModulus = 0.0
+        self.semModulus = 0.0
       else:  
         self.avgModulus = mean(moduli)
         self.stdModulus = stdev(moduli)
         self.cvModulus = self.stdModulus/self.avgModulus
+        self.semModulus = stats.sem(moduli)
         
 
   def setFailureMode(self):
@@ -148,20 +157,26 @@ class Sample:
       self.failureMode = modes[0]
     
   def setAvgCNTDiamAndStats(self):
+    averageDiams = []
     diams = []
     if self.inSEMdata:
       for p in self.testedPosts:
-        diam = p.semData.get('Average')
-        if isinstance(diam, float) and not np.isnan(diam) and diam != 0:
-          diams.append(diam)
-      if len(diams) == 0:
+        averageDiam = p.semData.get('Average')
+        diams.extend(p.individualCNTDiameters)
+        if isinstance(averageDiam, float) and not np.isnan(averageDiam) and averageDiam != 0:
+          averageDiams.append(averageDiam)
+      if len(averageDiams) == 0:
         self.avgCNTDiameter = 0.0
         self.stdCNTDiameter = 0.0
         self.cvCNTDiameter = 0.0
-      else:  
+        self.quantCNTDiameter = 0
+        self.semCNTDiameter = 0.0
+      else:
+        self.quantCNTDiameter = len(diams)  
         self.avgCNTDiameter = mean(diams)
         self.stdCNTDiameter = stdev(diams)
         self.cvCNTDiameter = self.stdCNTDiameter/self.avgCNTDiameter
+        self.semCNTDiameter = stats.sem(diams)
     
       
   def setInfilData(self):
@@ -293,12 +308,14 @@ class Post:
     self.length = 0.0
     self.effectiveLength = 0.0
     self.wEffLength = 0.0
+    self.wStiffness = 0.0
     self.modulus = 0.0
     self.averageMod = 0.0
     self.modUncertainty = 0.0
     self.percentModUncertainty = 0.0
     self.ultStrength = 0.0
     self.failureMode = ''
+    self.individualCNTDiameters = []
     self.avgCNTDiameter = 0.0
     self.fitParameters = [0.1, 3, 2, 120]
     self.initialGuesses = [1, 2]
@@ -310,25 +327,41 @@ class Post:
     self.ddTestConditions = {}
     self.semData = {}
     self.td: DataFrame = DataFrame()
+    self.tdRaw: DataFrame = DataFrame()
     self.tdNoOffset: DataFrame = DataFrame()
     self.tdWire: DataFrame = DataFrame()
     self.tdPost: DataFrame = DataFrame()
     self.force: DataFrame = DataFrame()
     self.stress: DataFrame = DataFrame()
+    self.x = []
+    self.y = []
+    self.sx = 5 # uncertainty in post deflection measurement in um
+    self.sy = 5 # uncertainty in wire deflection measurement in um
+    self.xfit = []
+    self.yfit = []
+    self.yfitForce = []
+    self.fitOutput = {'slope': [], 'stdError': [], 'endIndex': [], 'endXValue': [],
+                      'endYValue': [], 'redChiSqr': [], 'xx': [], 'yy': []}
+    self.dynamicFitResults: DataFrame = DataFrame()
     self.metaData = {}
     self.row = row
     self.post = post
     self.problemPost = problemPost
     self.curveClassification =  {'Initial_deflection': [], 'Failure': [], 'After_failure': []}
     self.inExcel = False
+    self.dynamicallyUpdatingXandY = config.dynamicPostDeflectionRange
 
   def resetDeflectionData(self):
-    self.sample.loadTrackerData()
+    # self.sample.loadTrackerData()
+    self.td = self.tdRaw
+    self.tdNoOffset = self.tdRaw
+    self.zeroOffset()
     
   def zeroOffset(self):
     firstRow = self.td.values[0]
     transformer = lambda row: row - firstRow
-    self.td = self.td.transform(transformer)  
+    self.td = self.td.transform(transformer)
+    # self.setXandY()  
 
   def setSample(self, sample: Sample):
     self.sample = sample
@@ -362,9 +395,17 @@ class Post:
     
   def setSemData(self, data):
     self.semData = data
+    self.setIndCNTDiams()
     self.setFailureMode()
     self.setAvgCNTDiamAndStats()
-    
+
+  def setIndCNTDiams(self):
+    for i in range(1, len(self.semData)):
+      d = self.semData[f'diameter_{i}']
+      if(np.isnan(d) or d == -1 or d == 0.0):
+        break
+      self.individualCNTDiameters.append(d)
+
   def setModulus(self, modulus):
     self.modulus = modulus
       
@@ -377,44 +418,98 @@ class Post:
     diam = self.semData.get('Average')
     if isinstance(diam, float):
       self.avgCNTDiameter = diam
-      
-  def savePlot(self, key, fig):
+
+  def storePlot(self, key, fig):
     self.plots[key] = fig
+
+  def savePlots(self):
+    directory = config.data_directory + "/" + config.output_directory
+    address = self.getAddressString()
+    for key, fig in self.plots.items():
+      if config.savePostPlotAsSVG:
+        fig.savefig(directory + f'/{address}_{key} at {config.truncationValue}.svg')
+      if config.savePostPlotOnPDF:
+        config.pdf.savefig(fig)
 
   def calcTdPost(self):
     if self.refData.empty and self.wireData.empty:
       return
-
     if not self.wireData.empty:  
       self.tdWire = self.wireData["totalDistanceTraveled"]
     else: 
       return
-
     data = abs(self.refData["totalDistanceTraveled"] - self.wireData["totalDistanceTraveled"])
     data = data.dropna()
     self.tdPost = data
+    self.tdRaw = DataFrame().assign(post=self.tdPost, wire=self.tdWire)
+    self.td = self.tdRaw
+    self.tdNoOffset = self.tdRaw
+    # self.dropInitialPoints(self.droppedPoints)
+    # self.truncateData() 
+  
+  def setXandY(self):
+    self.x = self.td.post.to_numpy()
+    self.y = self.td.wire.to_numpy()
+
+  def dynamicallyUpdateXandY(self, n):
+    initialLength = self.td[self.td.post <= config.minDynamicDelfectionRange].index[-1]
+    if initialLength+n > self.td.shape[0]:
+      self.dynamicallyUpdatingXandY = False
+      return
+    self.tdPost = self.td.post.iloc[0:(initialLength+n)]
+    self.x = self.tdPost.to_numpy()
+    self.tdWire = self.td.wire.iloc[0:(initialLength+n)]
+    self.y = self.tdWire.to_numpy()
+
+  def updateFitResults(self):
+    self.dynamicFitResults = pd.DataFrame(self.fitOutput)
+    i = self.dynamicFitResults.idxmin(numeric_only=True).redChiSqr
+    self.fitOutput = self.dynamicFitResults.loc[i].to_dict()# removes arrays
+    ei = self.fitOutput['endIndex']
+    self.tdPost = self.td.post.iloc[0:ei+1]
+    self.x = self.tdPost.to_numpy()
+    self.tdWire = self.td.wire.iloc[0:ei+1]
+    self.y = self.tdWire.to_numpy()
+    self.td = DataFrame().assign(post=self.tdPost, wire=self.tdWire)
+    self.xfit = self.fitOutput['xx']
+    self.yfit = self.fitOutput['yy']
+
+  def truncateData(self):
     if config.truncatePostDeflection == True:
-      self.tdPost = self.tdPost[self.tdPost <= config.truncationValue]
-      self.tdWire = self.tdWire[self.tdWire.index.isin(self.tdPost.index)]
-      self.tdPost.reset_index(drop=True, inplace=True)
-      self.tdWire.reset_index(drop=True, inplace=True)
-    self.td = DataFrame().assign(tdPost=self.tdPost, tdWire=self.tdWire)
-    self.tdNoOffset = DataFrame().assign(tdPost=self.tdPost, tdWire=self.tdWire)
+      self.td = self.td[self.td.post <= config.truncationValue]
+      self.td.reset_index(drop=True, inplace=True)
+      #NOTE: see what Rob thinks of these graphs vs the truncate then offset graphs
+      self.tdNoOffset = self.tdNoOffset[self.tdNoOffset.post <= (config.truncationValue + self.tdNoOffset.post[0])]
+      self.tdNoOffset.reset_index(drop=True, inplace=True)
+      self.setXandY()
+  
+  def dropInitialPoints(self, numPointsToDrop):
+    self.td = self.td.truncate(before = numPointsToDrop)
+    self.td.reset_index(drop=True, inplace=True)
+    self.tdNoOffset = self.tdNoOffset.truncate(before = numPointsToDrop)
+    self.tdNoOffset.reset_index(drop=True, inplace=True)
+    self.droppedPoints = numPointsToDrop
     self.zeroOffset()
+    self.setXandY()
   
   def calculations(self):
     self.calcModulus()
     self.calcModUncertainty()
+    self.calcwStiffness()
     self.calcForce()
     self.calcStress()
-    
-  def calcForce(self):
-    yw = self.td['tdWire']
+
+  def calcwStiffness(self):
     Ew = self.ddTestConditions.get("w_modulus")
     dw = self.ddTestConditions.get("w_diameter")
     lw = self.ddTestConditions.get("w_effective_length")
-    B = (Ew*3*np.pi*(dw**4))/(64*(lw**3))
-    self.force = pd.DataFrame(yw.to_numpy()/10**6 * B)
+    self.wStiffness = (Ew*3*np.pi*(dw**4))/(64*(lw**3))
+
+  def calcForce(self):
+    k = self.wStiffness 
+    yw = self.td['wire']
+    self.force = pd.DataFrame(yw.to_numpy()/10**6 * k)
+    self.yfitForce = (self.yfit/10**6 * k)
   
   def calcModulus(self):
     A = self.calcA()
@@ -524,16 +619,16 @@ def userFitCheck():
     return reply
 
 def userAutoOrCheck(sample):
-    global checkMode
+    # global checkMode
     title = "AutoMode or user check"
     msg = f"Check each individual plot of {sample.name}?"
     choices = ["Yes","No","Stop program"]
     reply = buttonbox(msg, title, choices=choices)
     if reply == "Yes":
-      checkMode = True
+      sample.checkMode = True
       return False
     elif reply == "No":
-      checkMode = False
+      sample.checkMode = False
       return True
     elif reply == "Stop program":
         sys.exit(0)
@@ -629,39 +724,45 @@ def userMarkAsProblemPost():
   pp = ynbox(msg, title)
   return pp
 
-def userInterface(slopes, ltParameters, initialGuesses, problemPost, segment, post):
+def userInterface(ltParameters, initialGuesses, problemPost, segment, post):
   if config.numOfLineFits == 'Multi' or config.numOfLineFits == 'Both':
-    if checkMode == True:  
+    if post.sample.checkMode == True:  
       reply = userFitCheck()
       if reply == "Yes":
-        segment = int(userPickLinearSegment(slopes))
+        segment = int(userPickLinearSegment(post.fitOutput['slope']))
         problemPost = userMarkAsProblemPost()
-        return True, segment, ltParameters, problemPost, 0
+        return True, segment, ltParameters, problemPost
       elif reply == "No":
-        droppedPoints = dropInitialPoints(post)
-        post.droppedPoints = droppedPoints
+        dropInitialPoints(post)
         ltParameters = userUpdateFitParameters(ltParameters)
-        return False, segment, ltParameters, False, droppedPoints
+        return False, segment, ltParameters, False
       elif reply == "Stop program":
         sys.exit(0)
-    elif checkMode == False:
-        return True, segment, ltParameters, False, 0
+    elif post.sample.checkMode == False:
+        return True, segment, ltParameters, False
   elif config.numOfLineFits == 'One':
-    if checkMode == True:  
+    if post.sample.checkMode == True:  
       reply = userFitCheck()
       # reply = 'Yes'
       if reply == "Yes":
         problemPost = userMarkAsProblemPost()
-        return True, segment, initialGuesses, problemPost, 0
+        return True, segment, initialGuesses, problemPost
       elif reply == "No":
-        droppedPoints = dropInitialPoints(post)
-        post.droppedPoints = droppedPoints
+        dropInitialPoints(post)
         #initialGuesses = userUpdateFitParameters(initialGuesses)
-        return False, segment, initialGuesses, False, droppedPoints
+        return False, segment, initialGuesses, False
       elif reply == "Stop program":
         sys.exit(0)
-    elif checkMode == False:
-      return True, segment, initialGuesses, False, 0
+    elif post.sample.checkMode == False:
+      return True, segment, initialGuesses, False
+
+def dropInitialPoints(post):
+  if config.readExcel and not post.sample.checkMode:
+    numPointsToDrop = post.droppedPoints
+  else:
+    numPointsToDrop = userDropInitialPoints(post)
+  post.dropInitialPoints(numPointsToDrop)
+
 
 def userDropInitialPoints(post):
   title = "Drop initial points"
@@ -673,50 +774,99 @@ def userDropInitialPoints(post):
   else:
     return int(points)
 
-def dropInitialPoints(post):
-  if config.readExcel and not checkMode:
-    numPointsToDrop = post.droppedPoints
-  else:
-    numPointsToDrop = userDropInitialPoints(post)
-  post.refData = post.refData.truncate(before = numPointsToDrop)
-  post.wireData = post.wireData.truncate(before = numPointsToDrop)
-  post.refData.reset_index(drop=True, inplace=True)
-  post.wireData.reset_index(drop=True, inplace=True)
-  post.calcTdPost()
-  return numPointsToDrop
-              
+
+
+# NOTE: Main data pipeline starts here
+
 def analyzePosts(sample):
-  global checkMode
-  checkMode = False
   goodFit = False
   testedPosts = sample.testedPosts
+  print(sample.name)
   while not goodFit:
-    for post in testedPosts:
-      if post.td.size != 0:
-        post.droppedPoints = dropInitialPoints(post)
-        x = post.td['tdPost'].to_numpy()
-        y = post.td['tdWire'].to_numpy()   
-        findGoodFit(x, y, post)
     if config.testMode:
       goodFit = True
     else: 
       goodFit = userAutoOrCheck(sample)
+    for post in testedPosts:
+      if post.td.size != 0:
+        dropInitialPoints(post)
+        post.truncateData() 
+        findGoodFit(post)
+    if config.minimumDataPoints != 'none':
+      testedPosts = [post for post in testedPosts if len(post.x) >= config.minimumDataPoints]
+      sample.testedPosts = testedPosts
+
   return testedPosts
                 
-def findGoodFit(x, y, post):
+def findGoodFit(post):
   goodFit = False
   while not goodFit:
-    goodFit, x, y = fitPlotCalcAndSave(x, y, post)
+    goodFit = fitPlotCalcAndSave(post)
 
-def isFigEmpty(figure):
-  """
-  Return whether the figure contains no Artists (other than the default
-  background patch).
-  """
-  contained_artists = figure.get_children()
-  return len(contained_artists) <= 1
+def fitPlotCalcAndSave(post):
+  ltParameters = post.fitParameters
+  initialGuesses = post.initialGuesses
+  dynamicFitResults = {}
+  if config.numOfLineFits == 'One': 
+    if config.dynamicPostDeflectionRange:
+      n = 0
+      while post.dynamicallyUpdatingXandY:
+        n = n+1
+        post.dynamicallyUpdateXandY(n)
+        if post.dynamicallyUpdatingXandY:
+          oneLineODRfit(post)
+      post.updateFitResults()
+    else:
+      oneLineODRfit(post)
+      post.updateFitResults()
+    if config.plotMode:
+      if config.specificPost == post.getAddressString() or config.specificPost == 'none':
+        # fig = plotForceDeflectionGraph(post)
+        fig = plotDeflectionGraph(post)
+      if post.sample.checkMode:
+        plt.show()
+    goodFit, segment, initialGuesses, problemPost = userInterface(ltParameters, initialGuesses, post.problemPost, post.segment, post)
+    post.fitOutput['endIndex']= post.fitOutput['endIndex']-post.droppedPoints
+  # elif config.numOfLineFits == 'Multi':
+  #   slopes, stdErrors, endXs = multiLineLTfit(x, y, post, ltParameters)
+  #   if config.plotMode:
+  #     fig = plotDeflectionGraph(x, y, xx, yy, post)
+  #     plt.show()
+  #   goodFit, segment, ltParameters, problemPost = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
+  #   endXs[segment] = endXs[segment]-post.droppedPoints
+  # elif config.numOfLineFits == 'Both':
+  #   xx, yy, slopesODR, stdErrorsODR, endXsODR = oneLineODRfit(x, y, post)
+  #   slopesLT, stdErrorsLT, endXsLT = multiLineLTfit(x, y, post, ltParameters)
+  #   goodFit, segment, ltParameters, problemPost = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
+  #   slopes = [*slopesODR, *slopesLT]
+  #   endXs[segment] = endXsLT[segment]-post.droppedPoints
+  #   stdErrors = stdErrorsLT
+  
+    # if(post.sample.name == '202-I' and post.post == 22 and post.row == 4):
+    #   print(post.sample.name)
+    #   directory = config.data_directory + "/" + config.output_directory
+    #   fig.savefig(directory + '/202-I_r4_p22.svg', bbox_inches='tight')
+    # post.savePlot('Deflection plot with fits', fig)
+  
+  goodSlope = post.fitOutput['slope']
+  stdError = post.fitOutput['stdError']
+  post.setGoodSlope(goodSlope)
+  post.setSlopeStdError(stdError)
+  post.problemPost = problemPost
+  post.calculations()
+  # post.ultStrength = post.force.to_numpy()[post.fitOutput['endIndex']-1][0]
+  # x = post.td['tdPost'].to_numpy()
+  # y = post.td['tdWire'].to_numpy() 
+  if goodFit:
+    if (config.saveEachPostPlot and config.plotMode) or config.specificPost == post.getAddressString():
+      plotForceDeflectionGraph(post)
+      post.savePlots()
+    post.fitParameters = ltParameters
+    post.segment = segment
+    post.initialGuesses = initialGuesses
+  return goodFit
 
-def oneLineODRfit(x, y, post):
+def oneLineODRfit(post):
   def f(B, x):
     '''Linear function y = m*x + b'''
     # B is a vector of the parameters.
@@ -725,79 +875,43 @@ def oneLineODRfit(x, y, post):
     #
     # Return an array in the same format as y passed to Data or RealData.
     return B[0]*x + B[1]
-  sx = 5
-  sy = 5
-  igs = post.initialGuesses
-  
+
   linear = odr.Model(f)
-  mydata = odr.RealData(x, y, sx=sx, sy=sy)
-  myodr = odr.ODR(mydata, linear, beta0=[igs[0], igs[1]])
+  mydata = odr.RealData(post.x, post.y, sx=post.sx, sy=post.sy)
+  myodr = odr.ODR(mydata, linear, beta0=[post.initialGuesses[0], post.initialGuesses[1]])
   myoutput = myodr.run()
   # myoutput.pprint()
-  xx = np.array([x[0], x[-1]])
+  xx = np.array([post.x[0], post.x[-1]])
   yy = f(myoutput.beta, xx)
-  # if config.plotMode:
-  #   plt.plot(xx, yy)
-  slope = [myoutput.beta[0]]
-  stdError = [myoutput.sd_beta[0]]
-  endx = [len(x)-1]
-  return xx, yy, slope, stdError, endx
+  post.xfit=xx
+  post.yfit=yy
+  # if config.plotMode and not config.testmode:
+  #   plt.scatter(post.x, post.y)
+  #   plt.show()
+  post.fitOutput['slope'].append(myoutput.beta[0])
+  post.fitOutput['stdError'].append(myoutput.sd_beta[0])
+  post.fitOutput['endIndex'].append(len(post.x)-1)
+  post.fitOutput['endXValue'].append(post.x[-1])
+  post.fitOutput['endYValue'].append(post.y[-1])
+  post.fitOutput['redChiSqr'].append(myoutput.res_var)
+  post.fitOutput['xx'].append(xx)
+  post.fitOutput['yy'].append(yy)
 
-# def multiLineLTfit(x, y, post, ltParameters):
-#   x = x.reshape(-1,1)
-#   lt = LinearTreeRegressor(
-#        base_estimator = LinearRegression(),
-#        min_samples_split= ltParameters[0],
-#        min_samples_leaf = ltParameters[1],
-#        max_depth = ltParameters[2],
-#        max_bins = ltParameters[3]
-#    ).fit(x, y)
-#   slopes, stdErrors, endXs = loopThroughLeaves(lt, x, y, post)
-#   return slopes, stdErrors, endXs
-  
-def fitPlotCalcAndSave(x, y, post):
-  ltParameters = post.fitParameters
-  initialGuesses = post.initialGuesses
-  if config.numOfLineFits == 'One':  
-    xx, yy, slopes, stdErrors, endXs = oneLineODRfit(x, y, post)
-    goodFit, segment, initialGuesses, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
-    endXs[segment] = endXs[segment]-droppedPoints
-  elif config.numOfLineFits == 'Multi':
-    slopes, stdErrors, endXs = multiLineLTfit(x, y, post, ltParameters)
-    goodFit, segment, ltParameters, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
-    endXs[segment] = endXs[segment]-droppedPoints
-  elif config.numOfLineFits == 'Both':
-    xx, yy, slopesODR, stdErrorsODR, endXsODR = oneLineODRfit(x, y, post)
-    slopesLT, stdErrorsLT, endXsLT = multiLineLTfit(x, y, post, ltParameters)
-    goodFit, segment, ltParameters, problemPost, droppedPoints = userInterface(slopes, ltParameters, initialGuesses, post.problemPost, post.segment, post)
-    slopes = [*slopesODR, *slopesLT]
-    endXs[segment] = endXsLT[segment]-droppedPoints
-    stdErrors = stdErrorsLT
-  if config.plotMode:
-    fig = plotDeflectionGraph(x, y, xx, yy, post)
-    if(post.sample.name == '202-I' and post.post == 22 and post.row == 4):
-      print(post.sample.name)
-      directory = config.data_directory + "/" + config.output_directory
-      fig.savefig(directory + '/202-I_r4_p22.svg', bbox_inches='tight')
-    post.savePlot('Deflection plot with fits', fig)
-  
-  goodSlope = slopes[segment]
-  stdError = stdErrors[segment]
-  post.setGoodSlope(goodSlope)
-  post.setSlopeStdError(stdError)
-  post.problemPost = problemPost
-  post.calculations()
-  post.ultStrength = post.force.to_numpy()[endXs[segment]][0]
-  x = post.td['tdPost'].to_numpy()
-  y = post.td['tdWire'].to_numpy() 
-  if goodFit:
-    if config.saveEachPostPlot and config.plotMode:
-      config.pdf.savefig(fig)
-    post.fitParameters = ltParameters
-    post.segment = segment
-    post.initialGuesses = initialGuesses
-  return goodFit, x, y
+# NOTE: Main data pipeline ends here
 
+# NOTE: Multi-line functions
+""" def multiLineLTfit(x, y, post, ltParameters):
+  x = x.reshape(-1,1)
+  lt = LinearTreeRegressor(
+       base_estimator = LinearRegression(),
+       min_samples_split= ltParameters[0],
+       min_samples_leaf = ltParameters[1],
+       max_depth = ltParameters[2],
+       max_bins = ltParameters[3]
+   ).fit(x, y)
+  slopes, stdErrors, endXs = loopThroughLeaves(lt, x, y, post)
+  return slopes, stdErrors, endXs
+  
 def calcStandardErrorOfSlope(X, y, model):
   stdErrors = []
   N = len(X)
@@ -839,53 +953,71 @@ def loopThroughLeaves(lt, x, y, post):
     stdErrors.append(stdError)
     # if not config.numOfLineFits:
     #   break
-  return slopes, stdErrors, endXs
+  return slopes, stdErrors, endXs """
 
-def savePostLevelGraphs(post):
-  x = post.tdPost.values.reshape(-1,1)
-  y = post.tdWire.values
-  # deflectionGraph(x, y, post)
-  plotForceDeflectionGraph(post)
 
-def plotForceDeflectionGraph(post):
-  f = post.force.values
+def isFigEmpty(figure):
+  """
+  Return whether the figure contains no Artists (other than the default
+  background patch).
+  """
+  contained_artists = figure.get_children()
+  return len(contained_artists) <= 1
+
+def checkBoxDimensions(plotName, fig, ax):
+  bbox = ax.get_window_extent()
+  print(f'{plotName} H: {bbox.height/fig.dpi}')
+  print(f'{plotName} W: {bbox.width/fig.dpi}')
+
+
+def plotForceDeflectionGraph(post, legend=False):
+  f = post.force.values*10e6
   d = post.tdPost.values.reshape(-1,1)
   
-  fig = plt.figure(figsize=(10,6))
-  plt.scatter(d, f, s=10, c='black')
-  plt.xlabel('Post deflection', fontsize=config.axisFontSize); plt.ylabel('Force', fontdict=config.axisFontSize)   
-  plt.title(post.getAddressString())
-  post.savePlot('Force Deflection plot', fig)
-    
-def plotDeflectionGraph(x, y, xx, yy, post, plotFit=True, legend=False, slopes=[]):
   fig, ax = plt.subplots(figsize=(10,6))
-  plt.scatter(x, y, s=100, c='black', alpha=(0.65))
-  plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize); #plt.ylabel('Wire deflection ' + u'(\u03bcm)', fontsize=config.axisFontSize)   
-  # plt.title(post.getAddressString(), fontsize=config.titleFontSize)
-  # plt.tight_layout()
-  if plotFit:
-    plt.plot(xx, yy, linewidth=3, alpha=0.85)
+  plt.scatter(d, f, s=100, c='black', alpha=(0.65))
+  plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize);plt.ylabel('Force ' + u'(\u03bcN)', fontsize=config.titleFontSize)
+  if config.title:
+    plt.title(f'{post.getAddressString()} {post.sample.infiltrationRecipe}', fontsize=config.titleFontSize)
+  if config.plotFit:
+    plt.plot(post.xfit, post.yfitForce*10e6, linewidth=3, alpha=0.85)
   if legend:
-    plt.legend(slopes)
-  post.savePlot('Deflection plot', fig)
+    plt.legend([post.fitOutput['slope'], post.fitOutput['redChiSqr']])
+  post.storePlot('Force Deflection plot', fig)
+  if config.checkBoxDims:
+    checkBoxDimensions(post.getAddressString(), fig, ax)
   return fig
     
-def collectPostInfo(posts):
-  slopes, moduli, wcHeights, failureModes, rpAddresses = collectPostInfo(posts)
-  slopes = []
-  moduli = []
-  wcHeights = []
-  failureModes = []
-  rpAddresses = []
-  for p in posts:
-    if p.goodSlope != 0:
-      slopes.append(p.goodSlope)
-      moduli.append(p.modulus)
-      wcHeights.append(p.ddTestConditions.get('slope_corrected_wire_contact_height'))
-      failureModes.append(p.semData.get("failure_mode"))
-      rpAddresses.append(p.getRowPostString())
-      savePostLevelGraphs(p)
-  return slopes, moduli, wcHeights, failureModes, rpAddresses
+def plotDeflectionGraph(post, legend=False):
+  fig, ax = plt.subplots(figsize=(10,6))
+  plt.scatter(post.x, post.y, s=100, c='black', alpha=(0.65))
+  plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize); plt.ylabel('Wire deflection ' + u'(\u03bcm)', fontsize=config.axisFontSize)
+  if config.title:  
+    plt.title(f'{post.getAddressString()} {post.sample.infiltrationRecipe}', fontsize=config.titleFontSize)
+  if config.plotFit:
+    plt.plot(post.xfit, post.yfit, linewidth=3, alpha=0.85)
+  if legend:
+    plt.legend([post.fitOutput['slope'], post.fitOutput['redChiSqr']])
+  post.storePlot('Deflection plot', fig)
+  if config.checkBoxDims:
+      checkBoxDimensions(post.getAddressString(), fig, ax)
+  return fig
+    
+# def collectPostInfo(posts):
+#   slopes, moduli, wcHeights, failureModes, rpAddresses = collectPostInfo(posts)
+#   slopes = []
+#   moduli = []
+#   wcHeights = []
+#   failureModes = []
+#   rpAddresses = []
+#   for p in posts:
+#     if p.goodSlope != 0:
+#       slopes.append(p.goodSlope)
+#       moduli.append(p.modulus)
+#       wcHeights.append(p.ddTestConditions.get('slope_corrected_wire_contact_height'))
+#       failureModes.append(p.semData.get("failure_mode"))
+#       rpAddresses.append(p.getRowPostString())
+#   return slopes, moduli, wcHeights, failureModes, rpAddresses
 
 def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=None, errorBars=False, snsPlotType='scatterplot', titlesize=16,
                    hue=None, style=None, markerSize=200, tickFontSize=16, legend=False, 
@@ -896,7 +1028,7 @@ def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=Non
   if ylog:
     ax.set_yscale('log')
   if snsPlotType == 'scatterplot':
-    sns.scatterplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette, style=style, s=markerSize)
+    sns.scatterplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette, style=style, s=markerSize, legend=legend)
     if errorBars:
       cmap = cm.get_cmap(markerPalette)
       df = df.sort_values(by=[xAxis])
@@ -909,6 +1041,7 @@ def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=Non
     sns.catplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette)
     plt.xticks(rotation=60)
   elif snsPlotType == 'boxplot':
+    config.legendIn = True
     sns.boxplot(x=xAxis, y=yAxis, data=df, hue=hue, palette=markerPalette, 
                 orient=boxOrien, order=boxOrder)
   elif snsPlotType == 'swarmplot':
@@ -939,8 +1072,10 @@ def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=Non
     sns.swarmplot(x=xAxis, y=yAxis, data=df, color=".25")
     
   if legend:
-    # plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
     plt.legend()
+    if not config.legendIn and config.legend:
+      plt.legend(bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
+    
     if truncateLegend:
       handles, labels = ax.get_legend_handles_labels()
       index_infiltration_title = labels.index('Infiltration_Time')
@@ -951,18 +1086,26 @@ def overviewGraphs(df, xAxis, yAxis,  xlabel, ylabel, title, xErr=None, yErr=Non
                 fontsize=16, title_fontsize=16)
       # ax.legend(handles[index_infiltration_title+1:index_sample_title], labels[index_infiltration_title+1:index_sample_title], title='Infiltration Times (s)', 
               # bbox_to_anchor=(1.01, 1), loc='upper left', borderaxespad=0)
+  if ylog:
+    yticks = ax.get_yticks()
+    values = np.log10(yticks)
+    ylabels = [f'1e{int(val)}' for val in values]
+    ax.set_yticklabels(ylabels, fontsize=config.tickFontSize)
   plt.xlabel(xlabel, fontsize=config.titleFontSize)
   plt.ylabel(ylabel, fontsize=config.titleFontSize)
-  plt.rc('xtick', labelsize=config.titleFontSize) 
-  plt.rc('ytick', labelsize=tickFontSize) 
-  plt.tight_layout()
+  plt.rc('xtick', labelsize=config.tickFontSize) 
+  plt.rc('ytick', labelsize=config.tickFontSize) 
+  # plt.tight_layout()
+  if config.checkBoxDims:
+    checkBoxDimensions(snsPlotType, fig, ax)
+  # plt.show()
   if titleBool:
     plt.title(title, fontsize=config.titleFontSize)
-  plt.show()
+  # plt.show()
   if savefig:
-    config.pdf.savefig(fig, bbox_inches='tight')
+    config.pdf.savefig(fig)#, bbox_inches='tight')
     directory = config.data_directory + "/" + config.output_directory
-    fig.savefig(directory + f'/{title} at {config.truncationValue}.svg', bbox_inches='tight')
+    fig.savefig(directory + f'/{title} at {config.truncationValue}.svg')#, bbox_inches='tight')
   return fig
   
 def saveSampleLevelGraphs(posts):
