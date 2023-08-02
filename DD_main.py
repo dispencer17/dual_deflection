@@ -604,7 +604,8 @@ def main():
     if infTime != config.infiltrationTime and config.infiltrationTime != 'all':
       continue
     if config.oneGraph:
-      oneGraphData.update(xySampleData[key])
+      for k, values in xySampleData[key].items():
+        oneGraphData[k].extend(values)
       continue
     snsDF = pd.DataFrame(xySampleData[key])
     fitDF = pd.DataFrame(xxyySampleData[key])
@@ -638,6 +639,10 @@ def main():
       plt.title(f'Sample: {key}, Inf time:  {infTime}, Offset to zero: {config.offsetToZero}', fontsize=16)
     if not config.testMode:
       plt.show()
+    if key == '202-I':
+        print(f'{ax.get_ylim()}')
+        print(f'{ax.get_xlim()}')
+        # plt.ylim(top=117)
     config.pdf.savefig(fig) #, bbox_inches='tight')
     if config.truncatePostDeflection and not config.plotFullDeflection:
       fig.savefig(directory + f'/Sample {key} at {config.truncationValue}.svg')#, bbox_inches='tight')
@@ -653,7 +658,13 @@ def main():
     fig, ax = plt.subplots(figsize=(10,6))
     sns.scatterplot(x='Post_deflection', y='Force', data=ogDF, hue=config.hue, alpha = 0.65, s=100,
                     legend=config.legend)
-    config.pdf.savefig(fig) #, bbox_inches='tight')
+    plt.ylabel('Force ' + u'(\u03bcN)', fontsize=config.titleFontSize)
+    plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize)
+    if config.truncatePostDeflection and not config.plotFullDeflection:
+      fig.savefig(directory + f'/{config.infiltrationTime} inf time at {config.truncationValue}.svg')#, bbox_inches='tight')
+    elif config.plotFullDeflection:
+      fig.savefig(directory + f'/{config.infiltrationTime} inf time at {config.fullDeflTruncationValue}.svg')
+    config.pdf.savefig(fig)
     # if config.truncatePostDeflection and not config.plotFullDeflection:
     #   fig.savefig(directory + f'/Sample {key} at {config.truncationValue}.svg')#, bbox_inches='tight')
     # elif config.plotFullDeflection:

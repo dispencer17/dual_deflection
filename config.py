@@ -98,20 +98,20 @@ titleFontSize = 20
 
 #Sample plots characteristics
 paintOverFigure = False  #Iteratively plot samples on the same figure. Best used with forceColor.
-oneGraph = True #collects all data into single data frame and plots on one graph. Allows easy hue coloring. Best with specific infiltration levels
+oneGraph = False #collects all data into single data frame and plots on one graph. Allows easy hue coloring. Best with specific infiltration levels
 offsetToZero = True
 forceColor = False
 if forceColor:
   # forcedColor = ['Purples', 'bone', 'Reds', 'Greens']
   forcedColor = ['Purples', 'bone', 'Reds', 'Greens']
-legend = False
-title = True
+legend = True
+title = False
 plotFits = False
 plotDeflection = False
-plotFullDeflection = False
-fullDeflTruncationValue = 50
+plotFullDeflection = True
+fullDeflTruncationValue = 10
 plotForce = True
-hue = 'Sample' #'Location' or 'Sample'
+hue = 'Location' #'Location' or 'Sample'
 legendIn = False
 tightLayout = False
 checkBoxDims = False
@@ -121,7 +121,7 @@ if limxAxis:
   xlimit = 55
 #   infiltrationTime is either an infiltration time or 'all'.
 #   It will limit the sample plots to that infiltration time.
-infiltrationTime = 30
+infiltrationTime = 15
 
 #Plot Overview graphs
 plotOverviewGraphs = True

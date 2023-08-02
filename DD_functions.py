@@ -127,7 +127,8 @@ class Sample:
               if post.inExcel or self.firstInitialization:
                 self.testedPosts.append(post)
             else:
-              self.testedPosts.append(post) 
+              self.testedPosts.append(post)
+
               
   def setAvgModAndStats(self):
     moduli = []
@@ -419,13 +420,14 @@ class Post:
     if isinstance(diam, float):
       self.avgCNTDiameter = diam
 
-  def storePlot(self, key, fig):
-    self.plots[key] = fig
+  def storePlot(self, key, fig, ax):
+    self.plots[key] = {'fig': fig, 'ax': ax}
 
   def savePlots(self):
     directory = config.data_directory + "/" + config.output_directory
     address = self.getAddressString()
-    for key, fig in self.plots.items():
+    for key, figs in self.plots.items():
+      fig = figs['fig']
       if config.savePostPlotAsSVG:
         fig.savefig(directory + f'/{address}_{key} at {config.truncationValue}.svg')
       if config.savePostPlotOnPDF:
@@ -860,6 +862,9 @@ def fitPlotCalcAndSave(post):
   if goodFit:
     if (config.saveEachPostPlot and config.plotMode) or config.specificPost == post.getAddressString():
       plotForceDeflectionGraph(post)
+      plt.ylim(-5.669513036154814, 116.75735602527222)
+      plt.xlim(-0.7874829987535152, 10.496276705116763)
+      # post.plots["Force Deflection plot"]['ax'].set_ylim(top=115)
       post.savePlots()
     post.fitParameters = ltParameters
     post.segment = segment
@@ -983,7 +988,7 @@ def plotForceDeflectionGraph(post, legend=False):
     plt.plot(post.xfit, post.yfitForce*10e6, linewidth=3, alpha=0.85)
   if legend:
     plt.legend([post.fitOutput['slope'], post.fitOutput['redChiSqr']])
-  post.storePlot('Force Deflection plot', fig)
+  post.storePlot('Force Deflection plot', fig, ax)
   if config.checkBoxDims:
     checkBoxDimensions(post.getAddressString(), fig, ax)
   return fig
@@ -998,7 +1003,7 @@ def plotDeflectionGraph(post, legend=False):
     plt.plot(post.xfit, post.yfit, linewidth=3, alpha=0.85)
   if legend:
     plt.legend([post.fitOutput['slope'], post.fitOutput['redChiSqr']])
-  post.storePlot('Deflection plot', fig)
+  post.storePlot('Deflection plot', fig, ax)
   if config.checkBoxDims:
       checkBoxDimensions(post.getAddressString(), fig, ax)
   return fig
