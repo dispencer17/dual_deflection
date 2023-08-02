@@ -584,7 +584,7 @@ def main():
     oneGraphData = {'Location': [], 'Post_deflection': [],
                     'Wire_deflection': [], 'Force': [],'Infiltration_status': [],  'Sample': []}
 
-
+  
   if config.testMode:
     plt.close('all')
   if config.matchYscale:
