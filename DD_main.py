@@ -639,6 +639,10 @@ def main():
       plt.title(f'Sample: {key}, Inf time:  {infTime}, Offset to zero: {config.offsetToZero}', fontsize=16)
     if not config.testMode:
       plt.show()
+    if key == '202-I':
+        print(f'{ax.get_ylim()}')
+        print(f'{ax.get_xlim()}')
+        # plt.ylim(top=117)
     config.pdf.savefig(fig) #, bbox_inches='tight')
     if config.truncatePostDeflection and not config.plotFullDeflection:
       fig.savefig(directory + f'/Sample {key} at {config.truncationValue}.svg')#, bbox_inches='tight')

@@ -98,7 +98,7 @@ titleFontSize = 20
 
 #Sample plots characteristics
 paintOverFigure = False  #Iteratively plot samples on the same figure. Best used with forceColor.
-oneGraph = True #collects all data into single data frame and plots on one graph. Allows easy hue coloring. Best with specific infiltration levels
+oneGraph = False #collects all data into single data frame and plots on one graph. Allows easy hue coloring. Best with specific infiltration levels
 offsetToZero = True
 forceColor = False
 if forceColor:
@@ -108,10 +108,10 @@ legend = True
 title = False
 plotFits = False
 plotDeflection = False
-plotFullDeflection = True
+plotFullDeflection = False
 fullDeflTruncationValue = 50
 plotForce = True
-hue = 'Sample' #'Location' or 'Sample'
+hue = 'Location' #'Location' or 'Sample'
 legendIn = False
 tightLayout = False
 checkBoxDims = False
