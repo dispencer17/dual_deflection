@@ -104,11 +104,11 @@ forceColor = False
 if forceColor:
   # forcedColor = ['Purples', 'bone', 'Reds', 'Greens']
   forcedColor = ['Purples', 'bone', 'Reds', 'Greens']
-legend = False
-title = True
+legend = True
+title = False
 plotFits = False
 plotDeflection = False
-plotFullDeflection = False
+plotFullDeflection = True
 fullDeflTruncationValue = 50
 plotForce = True
 hue = 'Sample' #'Location' or 'Sample'
@@ -121,7 +121,7 @@ if limxAxis:
   xlimit = 55
 #   infiltrationTime is either an infiltration time or 'all'.
 #   It will limit the sample plots to that infiltration time.
-infiltrationTime = 30
+infiltrationTime = 15
 
 #Plot Overview graphs
 plotOverviewGraphs = True

@@ -604,7 +604,8 @@ def main():
     if infTime != config.infiltrationTime and config.infiltrationTime != 'all':
       continue
     if config.oneGraph:
-      oneGraphData.update(xySampleData[key])
+      for k, values in xySampleData[key].items():
+        oneGraphData[k].extend(values)
       continue
     snsDF = pd.DataFrame(xySampleData[key])
     fitDF = pd.DataFrame(xxyySampleData[key])
@@ -615,7 +616,7 @@ def main():
       sns.set_palette(config.forcedColor[i])
       i = i+1 
     if config.plotDeflection:
-      sns.scatterplot(x='Post_deflection', y='Wire_deflection', data=snsDF, hue=config.hue, alpha = 0.65, s=100,
+      sns.scatterplot(x='Post_deflection', y='Wire_deflection', data=snsDF, hue=config.hue, alpha = 0.1, s=100,
                     legend=config.legend)
       plt.ylabel('Wire deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize)
     if config.plotFits and not config.plotForce:
@@ -623,7 +624,7 @@ def main():
     if config.plotFits and config.plotForce:
       sns.lineplot(x='xx', y='yyForce', data=fitDF, hue=config.hue, palette='dark', legend=config.legend)
     if config.plotForce:
-      sns.scatterplot(x='Post_deflection', y='Force', data=snsDF, hue=config.hue, alpha = 0.65, s=100,
+      sns.scatterplot(x='Post_deflection', y='Force', data=snsDF, hue=config.hue, alpha = 0.1, s=100,
                     legend=config.legend)
       plt.ylabel('Force ' + u'(\u03bcN)', fontsize=config.titleFontSize)
     if not config.legendIn and config.legend:
@@ -651,9 +652,15 @@ def main():
   if config.oneGraph:
     ogDF = pd.DataFrame(oneGraphData)
     fig, ax = plt.subplots(figsize=(10,6))
-    sns.scatterplot(x='Post_deflection', y='Force', data=ogDF, hue=config.hue, alpha = 0.65, s=100,
+    sns.scatterplot(x='Post_deflection', y='Force', data=ogDF, hue=config.hue, alpha = 0.1, s=100,
                     legend=config.legend)
-    config.pdf.savefig(fig) #, bbox_inches='tight')
+    plt.ylabel('Force ' + u'(\u03bcN)', fontsize=config.titleFontSize)
+    plt.xlabel('Post deflection ' + u'(\u03bcm)', fontsize=config.titleFontSize)
+    if config.truncatePostDeflection and not config.plotFullDeflection:
+      fig.savefig(directory + f'/{config.infiltrationTime} inf time at {config.truncationValue}.svg')#, bbox_inches='tight')
+    elif config.plotFullDeflection:
+      fig.savefig(directory + f'/{config.infiltrationTime} inf time at {config.fullDeflTruncationValue}.svg')
+    config.pdf.savefig(fig)
     # if config.truncatePostDeflection and not config.plotFullDeflection:
     #   fig.savefig(directory + f'/Sample {key} at {config.truncationValue}.svg')#, bbox_inches='tight')
     # elif config.plotFullDeflection:
